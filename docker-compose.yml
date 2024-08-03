@@ -1,0 +1,111 @@
+services:
+  xupery:
+    container_name: xupery
+    image: xupery:latest
+    build: .
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 900M
+          cpus: '0.25'
+      restart_policy:
+        condition: any
+    networks:
+      static:
+        ipv4_address: 172.18.0.2
+    ports:
+      - 8080:9900
+    environment:
+      DB_DSN: 'host=postgres user=postgres password=postgres dbname=messages sslmode=disable'
+      TOKEN_BASE: 'iAmWhoIAmAndIHaveNeedToBe'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    container_name: postgres
+    image: postgres:12-bookworm
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 900M
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+    networks:
+      static:
+        ipv4_address: 172.18.0.3
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: pg_isready
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    environment:
+      POSTGRES_DB: 'messages'
+      POSTGRES_USER: 'postgres'
+      POSTGRES_PASSWORD: 'postgres'
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  kafka:
+    image: bitnami/kafka:3.4.1
+    container_name: kafka
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 900M
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+    networks:
+      static:
+        ipv4_address: 172.18.0.4
+    ports:
+      - 9092:9092
+      - 9093:9093
+    healthcheck:
+      test: kafka-topics.sh --list --bootstrap-server localhost:9092
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    environment:
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      ALLOW_PLAINTEXT_LISTENER: yes
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_ENABLE_KRAFT: yes
+
+networks:
+  static:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1
+
+volumes:
+  pgdata:
+    driver: local
+    driver_opts:
+      o: 'size=2G'
+      device: tmpfs
+      type: tmpfs
